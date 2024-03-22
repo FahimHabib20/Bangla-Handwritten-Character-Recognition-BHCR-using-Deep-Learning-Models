@@ -1,0 +1,101 @@
+import os
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from sklearn.metrics import classification_report
+
+# Path to the training and testing directories
+train_dir = r'D:\thesis\code\bangla_Handwritten_data\Train'
+test_dir = r'D:\thesis\code\bangla_Handwritten_data\Test'
+
+# Count the number of classes based on the number of subfolders in the training directory
+num_classes = len(os.listdir(train_dir))
+
+# Data Preprocessing
+train_datagen = ImageDataGenerator(
+    rescale=1./255,
+    # Other preprocessing techniques like rotation, zoom, etc. can be added here
+)
+
+test_datagen = ImageDataGenerator(rescale=1./255)
+
+train_generator = train_datagen.flow_from_directory(
+    train_dir,
+    target_size=(50, 50),  # Resizing to 50x50 dimensions
+    color_mode='grayscale',  # Convert images to grayscale
+    batch_size=32,
+    class_mode='categorical')
+
+validation_generator = test_datagen.flow_from_directory(
+    test_dir,
+    target_size=(50, 50),  # Resizing to 50x50 dimensions
+    color_mode='grayscale',  # Convert images to grayscale
+    batch_size=32,
+    class_mode='categorical')
+
+# Inception Module
+def inception_module(x, filters):
+    branch1x1 = layers.Conv2D(filters, (1, 1), padding='same', activation='relu')(x)
+
+    branch3x3 = layers.Conv2D(filters, (1, 1), padding='same', activation='relu')(x)
+    branch3x3 = layers.Conv2D(filters, (3, 3), padding='same', activation='relu')(branch3x3)
+
+    branch5x5 = layers.Conv2D(filters, (1, 1), padding='same', activation='relu')(x)
+    branch5x5 = layers.Conv2D(filters, (5, 5), padding='same', activation='relu')(branch5x5)
+
+    branch_pool = layers.MaxPooling2D((3, 3), strides=(1, 1), padding='same')(x)
+    branch_pool = layers.Conv2D(filters, (1, 1), padding='same', activation='relu')(branch_pool)
+
+    output = layers.concatenate([branch1x1, branch3x3, branch5x5, branch_pool], axis=-1)
+    return output
+
+# Model Architecture (Inception)
+inputs = layers.Input(shape=(50, 50, 1))
+x = layers.Conv2D(32, 3, strides=1, padding='same')(inputs)
+x = layers.BatchNormalization()(x)
+x = layers.Activation('relu')(x)
+
+# Stack of inception modules
+x = inception_module(x, filters=64)
+x = inception_module(x, filters=128)
+x = layers.MaxPooling2D(2)(x)
+
+x = inception_module(x, filters=128)
+x = layers.MaxPooling2D(2)(x)
+
+x = layers.Flatten()(x)
+x = layers.Dense(512, activation='relu')(x)
+outputs = layers.Dense(num_classes, activation='softmax')(x)
+
+# Create Model
+model = models.Model(inputs, outputs)
+
+# Compile the Model
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Training
+history = model.fit(
+    train_generator,
+    steps_per_epoch=train_generator.samples/train_generator.batch_size,
+    epochs=10,  # Train for 10 epochs
+    validation_data=validation_generator,
+    validation_steps=validation_generator.samples/validation_generator.batch_size
+)
+
+# Evaluation
+y_pred = model.predict(validation_generator)
+y_true = validation_generator.classes
+
+# Convert predictions to class labels
+y_pred_labels = np.argmax(y_pred, axis=1)
+
+# Compute precision, recall, and F1-score
+report = classification_report(y_true, y_pred_labels)
+print(report)
+
+# Additional Evaluation (Accuracy)
+test_loss, test_acc = model.evaluate(validation_generator)
+print('Test accuracy:', test_acc)
