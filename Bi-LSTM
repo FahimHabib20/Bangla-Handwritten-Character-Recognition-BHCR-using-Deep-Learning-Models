@@ -1,0 +1,75 @@
+import os
+import numpy as np
+import tensorflow as tf
+from PIL import Image
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from sklearn.metrics import classification_report
+
+# Path to the training and testing directories
+train_dir = r'D:\thesis\code\bangla_Handwritten_data\Train'
+test_dir = r'D:\thesis\code\bangla_Handwritten_data\Test'
+
+# Count the number of classes based on the number of subfolders in the training directory
+num_classes = len(os.listdir(train_dir))
+
+# Data Preprocessing
+# Load images and reshape into sequences of pixels
+def preprocess_images(directory):
+    images = []
+    labels = []
+    for label, class_name in enumerate(os.listdir(directory)):
+        class_dir = os.path.join(directory, class_name)
+        for image_name in os.listdir(class_dir):
+            image_path = os.path.join(class_dir, image_name)
+            try:
+                image = Image.open(image_path).convert('L')  # Open image in grayscale mode
+                image = image.resize((50, 50))  # Resize image
+                image_array = np.array(image)
+                images.append(image_array)
+                labels.append(label)
+            except Exception as e:
+                print(f"Error loading image: {image_path} - {e}")
+    images = np.array(images)
+    labels = np.array(labels)
+    return images, labels
+
+x_train, y_train = preprocess_images(train_dir)
+x_test, y_test = preprocess_images(test_dir)
+
+# Normalize pixel values
+x_train = x_train / 255.0
+x_test = x_test / 255.0
+
+# Model Architecture (Bi-LSTM)
+model = models.Sequential([
+    layers.Bidirectional(layers.LSTM(64, return_sequences=True), input_shape=(50, 50)),
+    layers.Flatten(),
+    layers.Dense(512, activation='relu'),
+    layers.Dense(num_classes, activation='softmax')
+])
+
+# Compile the Model
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+# Training
+history = model.fit(
+    x_train,
+    y_train,
+    epochs=20,
+    validation_data=(x_test, y_test)
+)
+
+# Evaluation
+y_pred = model.predict(x_test)
+y_pred_labels = np.argmax(y_pred, axis=1)
+
+# Compute precision, recall, and F1-score
+report = classification_report(y_test, y_pred_labels)
+print(report)
+
+# Additional Evaluation (Accuracy)
+test_loss, test_acc = model.evaluate(x_test, y_test)
+print('Test accuracy:', test_acc)
